@@ -3,7 +3,7 @@ sudo: true
 
 env:
   matrix:
-    - TASK=c-example
+    - TASK=example
 
 script :
   - ( cd $TASK; ./test/run.sh )
