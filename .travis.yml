@@ -1,0 +1,9 @@
+language: c
+sudo: true
+
+env:
+  matrix:
+    - TASK=c-example
+
+script :
+  - ( cd $TASK; ./test/run.sh )
