@@ -16,33 +16,18 @@ void sig_func(int sig, siginfo_t *info, void *ctx) {
     static int atmpt = 0;
     switch (*(uint16_t *) uc->uc_mcontext.gregs[REG_RIP])
     {
-        case 0x338b:
-        {
-            uc->uc_mcontext.gregs[REG_RSI] = 100000 + (++atmpt);
-            uc->uc_mcontext.gregs[REG_RIP] += 2;
-        }
-            break;
-            
-        case 0x738b:
-        {
-            int i = ((*(uint32_t *) uc->uc_mcontext.gregs[REG_RIP]) & 0x00ff0000) >> 18;
-            uc->uc_mcontext.gregs[REG_RSI] = 100000 + 1000 * i + (++atmpt);
-            uc->uc_mcontext.gregs[REG_RIP] += 3;
-        }
-            break;
-        
-        case 0x758b:
-        {
-            int i = (((*(uint32_t *) uc->uc_mcontext.gregs[REG_RIP]) & 0x00ff0000) >> 18) + 4;
-            uc->uc_mcontext.gregs[REG_RSI] = 100000 + 1000 * i + (++atmpt);
-            uc->uc_mcontext.gregs[REG_RIP] += 3;
-        }
-            break;
-
         case 0x138b:
         {
             uc->uc_mcontext.gregs[REG_RDX] = 100000 + (++atmpt);
             uc->uc_mcontext.gregs[REG_RIP] += 2;
+        }
+            break;
+            
+        case 0x538b:
+        {
+            int i = ((*(uint32_t *) uc->uc_mcontext.gregs[REG_RIP]) & 0x00ff0000) >> 18;
+            uc->uc_mcontext.gregs[REG_RDX] = 100000 + 1000 * i + (++atmpt);
+            uc->uc_mcontext.gregs[REG_RIP] += 3;
         }
             break;
         
@@ -50,6 +35,21 @@ void sig_func(int sig, siginfo_t *info, void *ctx) {
         {
             int i = (((*(uint32_t *) uc->uc_mcontext.gregs[REG_RIP]) & 0x00ff0000) >> 18) + 4;
             uc->uc_mcontext.gregs[REG_RDX] = 100000 + 1000 * i + (++atmpt);
+            uc->uc_mcontext.gregs[REG_RIP] += 3;
+        }
+            break;
+
+        case 0x0b8b:
+        {
+            uc->uc_mcontext.gregs[REG_RCX] = 100000 + (++atmpt);
+            uc->uc_mcontext.gregs[REG_RIP] += 2;
+        }
+            break;
+        
+        case 0x4d8b:
+        {
+            int i = (((*(uint32_t *) uc->uc_mcontext.gregs[REG_RIP]) & 0x00ff0000) >> 18) + 4;
+            uc->uc_mcontext.gregs[REG_RCX] = 100000 + 1000 * i + (++atmpt);
             uc->uc_mcontext.gregs[REG_RIP] += 3;
         }
             break;
