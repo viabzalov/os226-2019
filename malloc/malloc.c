@@ -1,112 +1,161 @@
 #define _GNU_SOURCE
 
 #include <stdlib.h>
+#include <unistd.h>
+#include <string.h>
 #include <stdio.h>
 #include <dlfcn.h>
 
-#define CONCAT(...) __VA_ARGS__
+#define MAX_POWER_OF_TWO 32
 
-#if 0
-#define FNX(_ret, _name, _decl, _call, ...) \
-	static _ret (*_name ## _p)(_decl); \
-	void _name ## _init(void) __attribute__((constructor)); \
-	void _name ## _init(void) { \
-		_name ## _p = dlsym(RTLD_NEXT, # _name); \
-		fprintf(stderr, "init " # _name " %p\n", _name ## _p); \
-	} \
-        _ret _name (_decl) { \
-		__VA_ARGS__ \
-                return _name ## _p(_call); \
-        }
+typedef char ALIGN[64];
 
-FNX(void *, malloc,
-		size_t size,
-		size,
-{
-	fprintf(stderr, "%s size %u\n", __func__, size);
-})
+typedef union header {
 
-FNX(void, free,
-		void *ptr,
-		ptr,
-{
-	fprintf(stderr, "%s ptr %p\n", __func__, ptr);
-})
+	struct {
+		size_t size;
+		unsigned is_free;
+		union header *next;
+        union header *prev;
+	} s;
 
-FNX(void *, calloc,
-		CONCAT(size_t nmemb, size_t size),
-		CONCAT(nmemb, size),
-{
-	fprintf(stderr, "%s nmemb %u size %u\n", __func__, nmemb, size);
-})
+	ALIGN stub;
 
-FNX(void *, realloc,
-		CONCAT(void *ptr, size_t size),
-		CONCAT(ptr, size),
-{
-	fprintf(stderr, "%s ptr %p size %u\n", __func__, ptr, size);
-})
+} header_t;
 
-FNX(void *, reallocarray,
-		CONCAT(void *ptr, size_t nmemb, size_t size),
-		CONCAT(ptr, nmemb, size),
-{
-	fprintf(stderr, "%s ptr %p nmemb %u size %u\n", __func__, ptr, nmemb, size);
-})
+header_t *head[MAX_POWER_OF_TWO], *tail[MAX_POWER_OF_TWO];
 
-#else
+size_t power_of_two(size_t n) {
 
-#define MALLOCFN_X(x) \
-        x(void *, malloc, 1, size_t, size, "%u") \
-	x(void, free, 1, void *, ptr, "%p") \
-	x(void *, calloc, 2, size_t, nmemb, "%u", size_t, size, "%u") \
-	x(void *, realloc, 2, void *, ptr, "%p", size_t, size, "%p") \
-	x(void *, reallocarray, 3, void *, ptr, "%p", size_t, nmemb, "%u", size_t, size, "%u")
+    size_t res = 1, p = 0;
 
-#define DEFINE_(ret, name, dec) \
-	ret (*name ## _p)(dec);
-#define DEFINE1(ret, name, type1, name1, fmt1) \
-	DEFINE_(ret, name, CONCAT(type1 name1))
-#define DEFINE2(ret, name, type1, name1, fmt1, type2, name2, fmt2) \
-	DEFINE_(ret, name, CONCAT(type1 name1, type2 name2))
-#define DEFINE3(ret, name, type1, name1, fmt1, type2, name2, fmt2, type3, name3, fmt3) \
-	DEFINE_(ret, name, CONCAT(type1 name1, type2 name2, type3 name3))
-#define DEFINE(ret, name, n, ...) \
-        DEFINE ## n (ret, name, ## __VA_ARGS__)
-MALLOCFN_X(DEFINE)
-#undef DEFINE_
-#undef DEFINE1
-#undef DEFINE2
-#undef DEFINE3
-#undef DEFINE
+    while (res < n) {
+        res <<= 1;
+        ++p;
+    }
 
-#define DEFINE_(ret, name, dec, call, fmt) \
-	ret name (dec) { \
-		fprintf(stderr, "%s " fmt "\n", __func__, call); \
-		return (ret)0; /* FIXME implement me */ \
-		return name ## _p(call); \
-	}
-#define DEFINE1(ret, name, type1, name1, fmt1) \
-	DEFINE_(ret, name, CONCAT(type1 name1), CONCAT(name1), #name1 " " fmt1)
-#define DEFINE2(ret, name, type1, name1, fmt1, type2, name2, fmt2) \
-	DEFINE_(ret, name, CONCAT(type1 name1, type2 name2), CONCAT(name1, name2), #name1 " " fmt1 " " #name2 " " fmt2)
-#define DEFINE3(ret, name, type1, name1, fmt1, type2, name2, fmt2, type3, name3, fmt3) \
-	DEFINE_(ret, name, CONCAT(type1 name1, type2 name2, type3 name3), CONCAT(name1, name2, name3), #name1 " " fmt1 #name2 " " fmt2 " " #name3 " " fmt3)
-#define DEFINE(ret, name, n, ...) \
-        DEFINE ## n (ret, name, ## __VA_ARGS__)
-MALLOCFN_X(DEFINE)
-#undef DEFINE_
-#undef DEFINE1
-#undef DEFINE2
-#undef DEFINE3
-#undef DEFINE
+    return p;
 
-void init(void) __attribute__((constructor));
-void init(void) {
-#define INIT(ret, name, n, ...) \
-	name ## _p = dlsym(RTLD_NEXT, # name);
-MALLOCFN_X(INIT)
-#undef INIT
 }
 
-#endif
+header_t *get_free_block(size_t size) {
+
+	header_t *cur = head[power_of_two(size)];
+
+	while (cur && !cur->s.is_free) {
+        cur = cur->s.next;
+    }
+
+    return cur;
+
+}
+
+void free(void *block) {
+
+    if (!block) {
+        return;
+    }
+
+    header_t *header = (header_t*)(block) - 1;
+	void *program_break = sbrk(0);
+
+	if ((char*)block + header->s.size == program_break) {
+        size_t p = power_of_two(header->s.size);
+		if (head[p] == tail[p]) {
+			head[p] = tail[p] = NULL;
+		} else {
+            tail[p]->s.prev->s.next = NULL;
+			tail[p] = tail[p]->s.prev;
+		}
+		sbrk(0 - header->s.size - sizeof(header_t));
+		return;
+	}
+
+	header->s.is_free = 1;
+}
+
+void *malloc(size_t size) {
+
+	if (!size) {
+        return NULL;
+    }
+
+	header_t* header = get_free_block(size);
+
+	if (header) {
+		header->s.is_free = 0;
+		return (void*)(header + 1);
+	}
+
+    size = (1 << power_of_two(size));
+    size_t total_size = sizeof(header_t) + size;
+    void* block = sbrk(total_size);
+
+	if (block == (void*)(-1)) {
+		return NULL;
+	}
+
+	header = block;
+	header->s.size = size;
+	header->s.is_free = 0;
+	header->s.next = header->s.prev = NULL;
+
+    size_t p = power_of_two(header->s.size);
+
+	if (!head[p]) {
+        head[p] = header;
+    }
+
+	if (tail[p]) {
+        tail[p]->s.next = header;
+        header->s.prev = tail[p];
+    }
+
+	tail[p] = header;
+
+	return (void*)(header + 1);
+
+}
+
+void *calloc(size_t num, size_t nsize) {
+
+	if (!num || !nsize) {
+        return NULL;
+    }
+    
+    size_t size = num * nsize;
+
+	void *block = malloc(size);
+
+	if (!block) {
+        return NULL;
+    }
+
+	memset(block, 0, size);
+
+	return block;
+
+}
+
+void* realloc(void* block, size_t size) {
+
+	if (!block || !size) {
+        return malloc(size);
+    }
+
+    header_t* header = (header_t*)(block) - 1;
+
+	if (header->s.size >= size) {
+        return block;
+    }
+
+	void* res = malloc(size);
+
+	if (res) {
+		memcpy(res, block, header->s.size);
+		free(block);
+	}
+
+	return res;
+
+}
